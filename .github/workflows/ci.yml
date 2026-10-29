@@ -1,0 +1,24 @@
+name: validate
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: cp .env.example .dev.vars
+      - run: npm run db:migrate
+      - run: npm run typecheck && npm run lint && npm test && npm run build
+      - run: npx playwright install --with-deps chromium
+      - name: Browser tests
+        run: |
+          export CHROMIUM_PATH="$(node -e 'console.log(require("@playwright/test").chromium.executablePath())')"
+          npm run test:e2e
+          npm run test:offline
