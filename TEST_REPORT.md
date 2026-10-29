@@ -40,3 +40,7 @@
 - 초기 의존성 버전 불일치 및 구형 Push 인코딩을 수정한 뒤 최종 검사를 통과함.
 
 보안 설정 및 알려진 제약은 SETUP.md, NEXT_STEPS.md, docs/DECISIONS.md 참고.
+
+## 소스 보존
+
+기능별 로컬 커밋을 `feat/dayflow-mvp`에 생성했다. 원격 push는 자동 승인 검토에 의해 실행 전 차단되어 GitHub 업로드/PR/Actions 실행은 확인되지 않았다. 코드의 외부 전송 승인 후 진행할 수 있다. 설치 스크립트와 시작 지침, Gemini 문서/API 도메인은 환경 초안에 저장되었으나 환경 Publish 및 새 작업 복원은 수행하지 않았다.
