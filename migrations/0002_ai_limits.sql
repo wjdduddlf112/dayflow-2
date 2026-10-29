@@ -1,0 +1,1 @@
+CREATE TABLE AILimits (day TEXT PRIMARY KEY, calls INTEGER NOT NULL CHECK(calls >= 0));

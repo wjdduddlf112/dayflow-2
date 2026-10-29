@@ -1,0 +1,13 @@
+PRAGMA foreign_keys = ON;
+CREATE TABLE ScheduleItems (id TEXT PRIMARY KEY, data TEXT NOT NULL CHECK(json_valid(data)), version INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+CREATE INDEX schedule_updated ON ScheduleItems(updated_at);
+CREATE TABLE RoutineCompletions (item_id TEXT NOT NULL REFERENCES ScheduleItems(id) ON DELETE CASCADE, day TEXT NOT NULL, PRIMARY KEY(item_id, day));
+CREATE TABLE UserSettings (id INTEGER PRIMARY KEY CHECK(id = 1), data TEXT NOT NULL CHECK(json_valid(data)));
+CREATE TABLE Sessions (id TEXT PRIMARY KEY, expires_at INTEGER NOT NULL);
+CREATE INDEX session_expiry ON Sessions(expires_at);
+CREATE TABLE LoginAttempts (key TEXT PRIMARY KEY, attempts INTEGER NOT NULL, reset_at INTEGER NOT NULL);
+CREATE TABLE PushSubscriptions (id TEXT PRIMARY KEY, data TEXT NOT NULL CHECK(json_valid(data)), created_at TEXT NOT NULL);
+CREATE TABLE NotificationLogs (id TEXT PRIMARY KEY, subscription_id TEXT NOT NULL, status TEXT NOT NULL CHECK(status IN ('pending','sent','failed')), created_at TEXT NOT NULL);
+CREATE INDEX notification_created ON NotificationLogs(created_at);
+CREATE TABLE AIActionDrafts (id TEXT PRIMARY KEY, data TEXT NOT NULL CHECK(json_valid(data)), snapshot TEXT NOT NULL, expires_at INTEGER NOT NULL, applied INTEGER NOT NULL DEFAULT 0 CHECK(applied IN (0,1)));
+CREATE TABLE RequestKeys (id TEXT PRIMARY KEY, created_at TEXT NOT NULL);
