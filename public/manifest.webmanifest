@@ -1,0 +1,26 @@
+{
+  "id": "/",
+  "name": "Dayflow 2.0 — AI 일정 비서",
+  "short_name": "Dayflow",
+  "description": "나의 하루를 가볍게 정리하는 개인 일정 비서",
+  "lang": "ko",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f7f8fb",
+  "theme_color": "#3973ef",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
