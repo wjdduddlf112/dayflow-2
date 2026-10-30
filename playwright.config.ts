@@ -3,6 +3,8 @@ export default defineConfig({
   testDir: "tests/e2e",
   fullyParallel: false,
   use: {
+    timezoneId: "America/Los_Angeles",
+    locale: "ko-KR",
     baseURL: "http://localhost:5173",
     viewport: { width: 390, height: 844 },
     launchOptions: {

@@ -25,9 +25,13 @@ import {
   Clock3,
   WifiOff,
 } from "lucide-react";
+import { useDialog } from "./useDialog";
+import { readCache, writeCache, clearCache, readTheme } from "./storage";
 import { api } from "./api";
 import {
   defaults,
+  resolveActionTarget,
+  editableFields,
   occursOn,
   seoulDay,
   topThree,
@@ -82,9 +86,7 @@ export default function App() {
   const [tab, setTab] = useState("Today");
   const [day, setDay] = useState(seoulDay());
   const [month, setMonth] = useState(seoulDay().slice(0, 7));
-  const [theme, setTheme] = useState(
-    () => localStorage.getItem("dayflow-theme") || "system",
-  );
+  const [theme, setTheme] = useState(readTheme);
   const [input, setInput] = useState("");
   const [preview, setPreview] = useState<Preview | null>(null);
   const [busy, setBusy] = useState(false);
@@ -97,41 +99,122 @@ export default function App() {
   const [notice, setNotice] = useState("");
   const [offline, setOffline] = useState(!navigator.onLine);
   const [install, setInstall] = useState(false);
-  async function refresh(selected = tab === "Calendar" ? day : seoulDay()) {
+  const activeDay = useRef(day);
+  activeDay.current = tab === "Calendar" ? day : seoulDay();
+  const requestId = useRef(0);
+  const loggedIn = useRef(session);
+  loggedIn.current = session;
+  const [loading, setLoading] = useState(false);
+  async function refresh(selected = activeDay.current) {
+    const id = ++requestId.current;
     const s = await api<State>(`/state?day=${selected}`);
+    if (
+      !loggedIn.current ||
+      id !== requestId.current ||
+      selected !== activeDay.current
+    )
+      return;
     setState(s);
-    sessionStorage.setItem("dayflow-offline", JSON.stringify(s));
+    writeCache(s);
   }
+  function editPreview(index: number, patch: Partial<ItemInput>) {
+    setPreview((p) =>
+      p
+        ? {
+            ...p,
+            actions: p.actions.map((action, i) =>
+              i === index
+                ? {
+                    ...action,
+                    item: { ...action.item, ...patch },
+                    changedFields: [
+                      ...new Set([
+                        ...action.changedFields,
+                        ...editableFields.filter((key) => key in patch),
+                      ]),
+                    ],
+                  }
+                : action,
+            ),
+          }
+        : p,
+    );
+  }
+  function chooseTarget(index: number, id: string) {
+    const target = state.items.find((i) => i.id === id);
+    setPreview((p) =>
+      p
+        ? {
+            ...p,
+            actions: p.actions.map((action, i) =>
+              i === index
+                ? target
+                  ? resolveActionTarget(action, target)
+                  : { ...action, targetId: null }
+                : action,
+            ),
+          }
+        : p,
+    );
+  }
+  useDialog(
+    editor
+      ? "editor"
+      : preview
+        ? "preview"
+        : deleting
+          ? "delete"
+          : install
+            ? "install"
+            : "",
+    () => {
+      if (busy) return;
+      setEditor(null);
+      setPreview(null);
+      setDeleting(null);
+      setInstall(false);
+    },
+  );
   useEffect(() => {
     api<{ authenticated: boolean }>("/session")
       .then((s) => setSession(s.authenticated))
       .catch((e) => {
-        if (!navigator.onLine && sessionStorage.getItem("dayflow-offline"))
-          setSession(true);
+        if (!navigator.onLine && readCache()) setSession(true);
         else setError(e.message);
       });
     const logout = () => {
       setSession(false);
-      sessionStorage.removeItem("dayflow-offline");
+      clearCache();
     };
     window.addEventListener("dayflow-unauthorized", logout);
     return () => window.removeEventListener("dayflow-unauthorized", logout);
   }, []);
   useEffect(() => {
-    if (session)
-      refresh().catch((e) => {
-        if (!navigator.onLine) {
-          const cache = sessionStorage.getItem("dayflow-offline");
-          if (cache) setState(JSON.parse(cache));
-        }
-        setError(e.message);
-      });
-  }, [session, day, tab]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (session) {
+      setLoading(true);
+      refresh()
+        .catch((e) => {
+          if (!navigator.onLine) {
+            const cache = readCache();
+            if (cache) setState(JSON.parse(cache));
+          }
+          setError(e.message);
+        })
+        .finally(() => setLoading(false));
+    }
+  }, [session, day, tab]);
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [tab]);
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
     document.documentElement.style.colorScheme =
       theme === "system" ? "light dark" : theme;
-    localStorage.setItem("dayflow-theme", theme);
+    try {
+      localStorage.setItem("dayflow-theme", theme);
+    } catch {
+      /* Theme still applies when storage is unavailable. */
+    }
   }, [theme]);
   useEffect(() => {
     const on = () => {
@@ -155,6 +238,13 @@ export default function App() {
   };
   const today = seoulDay();
   const todayItems = state.items.filter((i) => occursOn(i, today));
+  const todayFlow = todayItems.filter((i) => i.type !== "task");
+  const activeTasks = state.items.filter(
+    (i) =>
+      i.type === "task" &&
+      (!i.scheduledDate || i.scheduledDate <= today) &&
+      (!i.startAt || seoulDay(new Date(i.startAt)) <= today),
+  );
   const top = topThree(state.items);
   const done = todayItems.filter((i) => i.completed).length;
   async function complete(item: Item) {
@@ -172,7 +262,17 @@ export default function App() {
         day: tab === "Calendar" ? day : today,
         version: item.version,
       });
-      await refresh();
+      setState((s) => ({
+        ...s,
+        items: s.items.map((i) =>
+          i.id === item.id ? { ...i, version: item.version + 1 } : i,
+        ),
+      }));
+      await refresh().catch(() =>
+        setError(
+          "완료 상태는 저장했어요. 목록을 다시 불러오려면 화면을 전환해 주세요.",
+        ),
+      );
     } catch (e) {
       setState((s) => ({
         ...s,
@@ -207,18 +307,19 @@ export default function App() {
         await api("/items", "POST", editor, {
           "Idempotency-Key": createKey.current,
         });
-      await refresh();
       setEditor(null);
       setNotice("저장했어요.");
+      await refresh();
     });
     setBusy(false);
   }
-  async function updateSettings(patch: Partial<Settings>) {
+  async function saveSettings(patch: Partial<Settings>) {
     const updated = { ...state.settings, ...patch };
-    await handle(async () => {
-      await api("/settings", "PUT", updated);
-      setState((s) => ({ ...s, settings: updated }));
-    });
+    await api("/settings", "PUT", updated);
+    setState((s) => ({ ...s, settings: updated }));
+  }
+  async function updateSettings(patch: Partial<Settings>) {
+    await handle(() => saveSettings(patch));
   }
   async function enablePush() {
     await handle(async () => {
@@ -244,19 +345,21 @@ export default function App() {
           applicationServerKey: key,
         }));
       await api("/push/subscribe", "POST", sub.toJSON());
-      await updateSettings({ notificationsEnabled: true });
+      await saveSettings({ notificationsEnabled: true });
       setNotice("이 기기의 알림을 활성화했어요.");
     });
   }
   async function disablePush() {
     await handle(async () => {
+      if (!("serviceWorker" in navigator) || !("PushManager" in window))
+        throw new Error("이 브라우저에서는 Push를 사용할 수 없어요.");
       const reg = await navigator.serviceWorker.ready;
       const sub = await reg.pushManager.getSubscription();
       if (sub) {
         await api("/push/subscribe", "DELETE", { endpoint: sub.endpoint });
         await sub.unsubscribe();
       }
-      await updateSettings({ notificationsEnabled: false });
+      await saveSettings({ notificationsEnabled: false });
     });
   }
   function itemRow(item: Item) {
@@ -279,7 +382,11 @@ export default function App() {
             <Circle size={21} />
           )}
         </button>
-        <button className="item-main" onClick={() => setEditor({ ...item })}>
+        <button
+          className="item-main"
+          disabled={pending.includes(item.id)}
+          onClick={() => setEditor({ ...item })}
+        >
           <strong>{item.title}</strong>
           <span>
             {item.startAt
@@ -298,6 +405,7 @@ export default function App() {
         )}
         <button
           className="icon-button subtle"
+          disabled={pending.includes(item.id)}
           aria-label={`${item.title} 삭제`}
           onClick={() => setDeleting(item)}
         >
@@ -366,11 +474,13 @@ export default function App() {
         <form
           onSubmit={(e) => {
             e.preventDefault();
+            if (busy) return;
+            setBusy(true);
             handle(async () => {
               await api("/login", "POST", { password });
               setPassword("");
               setSession(true);
-            });
+            }).finally(() => setBusy(false));
           }}
         >
           <label>
@@ -383,7 +493,9 @@ export default function App() {
               onChange={(e) => setPassword(e.target.value)}
             />
           </label>
-          <button className="primary">로그인</button>
+          <button className="primary" disabled={busy}>
+            {busy ? "로그인 중…" : "로그인"}
+          </button>
         </form>
         {error && (
           <p role="alert" className="alert">
@@ -450,6 +562,12 @@ export default function App() {
             </button>
           </div>
         </header>
+        {loading && (
+          <div className="loading-state" role="status">
+            <span className="spinner" />
+            일정을 불러오고 있어요…
+          </div>
+        )}
         {state.development && (
           <div className="dev-banner">
             개발 모드 · 로그인 없이 로컬 테스트 중입니다. 실제 개인정보를
@@ -536,13 +654,7 @@ export default function App() {
                 </span>
                 <span>
                   <CheckCheck size={16} /> 남은 할 일{" "}
-                  <b>
-                    {
-                      state.items.filter(
-                        (i) => !i.completed && i.type === "task",
-                      ).length
-                    }
-                  </b>
+                  <b>{activeTasks.filter((i) => !i.completed).length}</b>
                 </span>
                 <span>
                   <Repeat2 size={16} /> 오늘 루틴{" "}
@@ -550,6 +662,17 @@ export default function App() {
                 </span>
               </div>
             </section>
+            <div className="mobile-progress">
+              <span>오늘의 완료</span>
+              <b>
+                {done} / {todayItems.length}
+              </b>
+              <progress
+                value={done}
+                max={Math.max(1, todayItems.length)}
+                aria-label="오늘 완료 현황"
+              />
+            </div>
             <div className="section-heading">
               <h2>
                 오늘의 Top 3 <span className="tiny-badge">FOCUS</span>
@@ -561,6 +684,7 @@ export default function App() {
                 top.map(({ item, reason }, i) => (
                   <button
                     className="focus-card"
+                    disabled={pending.includes(item.id)}
                     key={item.id}
                     onClick={() => setEditor({ ...item })}
                   >
@@ -599,7 +723,7 @@ export default function App() {
                 <div className="section-heading">
                   <h2>
                     오늘의 흐름{" "}
-                    <span className="count">{todayItems.length}</span>
+                    <span className="count">{todayFlow.length}</span>
                   </h2>
                   <button
                     className="text-button"
@@ -612,10 +736,12 @@ export default function App() {
                   </button>
                 </div>
                 <div className="panel item-list">
-                  {todayItems.length ? (
-                    todayItems
-                      .sort((a, b) =>
-                        (a.startAt || "z").localeCompare(b.startAt || "z"),
+                  {todayFlow.length ? (
+                    todayFlow
+                      .sort(
+                        (a, b) =>
+                          (a.startAt ? Date.parse(a.startAt) : Infinity) -
+                          (b.startAt ? Date.parse(b.startAt) : Infinity),
                       )
                       .map(itemRow)
                   ) : (
@@ -630,17 +756,13 @@ export default function App() {
                   <h2>
                     할 일{" "}
                     <span className="count">
-                      {
-                        state.items.filter(
-                          (i) => i.type === "task" && !i.completed,
-                        ).length
-                      }
+                      {activeTasks.filter((i) => !i.completed).length}
                     </span>
                   </h2>
                 </div>
                 <div className="panel item-list">
-                  {state.items.filter((i) => i.type === "task").map(itemRow)}
-                  {!state.items.some((i) => i.type === "task") && (
+                  {activeTasks.map(itemRow)}
+                  {!activeTasks.length && (
                     <div className="empty">
                       <p>첫 번째 할 일을 기다리고 있어요.</p>
                     </div>
@@ -728,7 +850,7 @@ export default function App() {
                   aria-label="이전 달"
                   onClick={() => {
                     const d = new Date(month + "-15");
-                    d.setMonth(d.getMonth() - 1);
+                    d.setUTCMonth(d.getUTCMonth() - 1);
                     setMonth(d.toISOString().slice(0, 7));
                   }}
                 >
@@ -740,7 +862,7 @@ export default function App() {
                   aria-label="다음 달"
                   onClick={() => {
                     const d = new Date(month + "-15");
-                    d.setMonth(d.getMonth() + 1);
+                    d.setUTCMonth(d.getUTCMonth() + 1);
                     setMonth(d.toISOString().slice(0, 7));
                   }}
                 >
@@ -763,7 +885,7 @@ export default function App() {
                   </span>
                 ))}
                 {Array.from(
-                  { length: new Date(month + "-01T12:00:00+09:00").getDay() },
+                  { length: new Date(month + "-01T12:00:00Z").getUTCDay() },
                   (_, i) => (
                     <span key={`blank${i}`} />
                   ),
@@ -1030,7 +1152,7 @@ export default function App() {
                 onClick={() =>
                   handle(async () => {
                     await api("/logout", "POST", {});
-                    sessionStorage.removeItem("dayflow-offline");
+                    clearCache();
                     setState((s) => ({ ...s, items: [] }));
                     setSession(false);
                   })
@@ -1045,6 +1167,27 @@ export default function App() {
           <span>Dayflow</span> 오늘의 작은 흐름이, 더 나은 내일로.
         </footer>
       </main>
+      {(tab === "Today" || tab === "Calendar") &&
+        !editor &&
+        !preview &&
+        !deleting &&
+        !install && (
+          <button
+            className="quick-capture"
+            onClick={() => {
+              setTab("Inbox");
+              setTimeout(
+                () =>
+                  document
+                    .querySelector<HTMLTextAreaElement>(".composer textarea")
+                    ?.focus(),
+                0,
+              );
+            }}
+          >
+            <Sparkles size={17} /> 빠른 입력
+          </button>
+        )}
       <nav className="bottom-nav" aria-label="주요 화면">
         {(
           [
@@ -1094,7 +1237,7 @@ export default function App() {
               <label>
                 제목
                 <input
-                  autoFocus
+                  data-autofocus
                   required
                   maxLength={120}
                   value={editor.title}
@@ -1152,6 +1295,7 @@ export default function App() {
                     setEditor({
                       ...editor,
                       scheduledDate: e.target.value || null,
+                      ...(e.target.value ? { startAt: null, endAt: null } : {}),
                     })
                   }
                 />
@@ -1168,6 +1312,9 @@ export default function App() {
                         [field]: e.target.value
                           ? e.target.value + ":00+09:00"
                           : null,
+                        ...(field === "startAt" && e.target.value
+                          ? { scheduledDate: null }
+                          : {}),
                       })
                     }
                   />
@@ -1331,19 +1478,10 @@ export default function App() {
                   정리된 제목
                   <input
                     value={a.item.title}
-                    onChange={(e) =>
-                      setPreview({
-                        ...preview,
-                        actions: preview.actions.map((v, j) =>
-                          i === j
-                            ? {
-                                ...v,
-                                item: { ...v.item, title: e.target.value },
-                              }
-                            : v,
-                        ),
-                      })
+                    disabled={
+                      a.operation === "complete" || a.operation === "delete"
                     }
+                    onChange={(e) => editPreview(i, { title: e.target.value })}
                   />
                 </label>
                 <p>
@@ -1362,73 +1500,52 @@ export default function App() {
                     ? ` · ${a.item.recurrence.frequency === "daily" ? "매일" : "매주"}`
                     : ""}
                 </p>
-                <label>
-                  날짜만 지정
-                  <input
-                    type="date"
-                    value={a.item.scheduledDate || ""}
-                    onChange={(e) =>
-                      setPreview({
-                        ...preview,
-                        actions: preview.actions.map((v, j) =>
-                          i === j
-                            ? {
-                                ...v,
-                                item: {
-                                  ...v.item,
-                                  scheduledDate: e.target.value || null,
-                                },
-                              }
-                            : v,
-                        ),
-                      })
-                    }
-                  />
-                </label>
-                <div className="form-grid">
-                  {(["startAt", "dueAt"] as const).map((field, n) => (
-                    <label key={field}>
-                      {n === 0 ? "시작 (선택)" : "마감 (선택)"}
+                {(a.operation === "create" || a.operation === "update") && (
+                  <>
+                    <label>
+                      날짜만 지정
                       <input
-                        type="datetime-local"
-                        value={localInput(a.item[field])}
+                        type="date"
+                        value={a.item.scheduledDate || ""}
                         onChange={(e) =>
-                          setPreview({
-                            ...preview,
-                            actions: preview.actions.map((v, j) =>
-                              i === j
-                                ? {
-                                    ...v,
-                                    item: {
-                                      ...v.item,
-                                      [field]: e.target.value
-                                        ? e.target.value + ":00+09:00"
-                                        : null,
-                                    },
-                                  }
-                                : v,
-                            ),
+                          editPreview(i, {
+                            scheduledDate: e.target.value || null,
+                            ...(e.target.value
+                              ? { startAt: null, endAt: null }
+                              : {}),
                           })
                         }
                       />
                     </label>
-                  ))}
-                </div>
+                    <div className="form-grid">
+                      {(["startAt", "dueAt"] as const).map((field, n) => (
+                        <label key={field}>
+                          {n === 0 ? "시작 (선택)" : "마감 (선택)"}
+                          <input
+                            type="datetime-local"
+                            value={localInput(a.item[field])}
+                            onChange={(e) =>
+                              editPreview(i, {
+                                [field]: e.target.value
+                                  ? e.target.value + ":00+09:00"
+                                  : null,
+                                ...(field === "startAt" && e.target.value
+                                  ? { scheduledDate: null }
+                                  : {}),
+                              })
+                            }
+                          />
+                        </label>
+                      ))}
+                    </div>
+                  </>
+                )}
                 {a.operation !== "create" && (
                   <label>
                     적용 대상
                     <select
                       value={a.targetId || ""}
-                      onChange={(e) =>
-                        setPreview({
-                          ...preview,
-                          actions: preview.actions.map((v, j) =>
-                            i === j
-                              ? { ...v, targetId: e.target.value || null }
-                              : v,
-                          ),
-                        })
-                      }
+                      onChange={(e) => chooseTarget(i, e.target.value)}
                     >
                       <option value="">기존 항목 선택</option>
                       {state.items.map((it) => (
@@ -1464,9 +1581,9 @@ export default function App() {
                       id: preview.id,
                       actions: preview.actions,
                     });
-                    await refresh();
                     setPreview(null);
                     setInput("");
+                    await refresh();
                     setNotice("확인한 내용을 저장했어요.");
                   });
                   setBusy(false);
@@ -1509,8 +1626,8 @@ export default function App() {
                     await api(`/items/${deleting.id}`, "DELETE", undefined, {
                       "If-Match": String(deleting.version),
                     });
-                    await refresh();
                     setDeleting(null);
+                    await refresh();
                   });
                   setBusy(false);
                 }}

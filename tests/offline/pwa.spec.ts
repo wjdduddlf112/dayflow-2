@@ -36,3 +36,17 @@ test("production shell reopens offline without caching private API responses", a
   ).toBeDisabled();
   await context.setOffline(false);
 });
+test("production static assets ship strict script policy and no-cache service worker", async ({
+  request,
+}) => {
+  const index = await request.get("/");
+  expect(index.headers()["content-security-policy"]).toContain(
+    "script-src 'self';",
+  );
+  expect(index.headers()["content-security-policy"]).not.toContain(
+    "script-src 'self' 'unsafe-inline'",
+  );
+  expect(index.headers()["x-content-type-options"]).toBe("nosniff");
+  const sw = await request.get("/sw.js");
+  expect(sw.headers()["cache-control"]).toContain("no-cache");
+});

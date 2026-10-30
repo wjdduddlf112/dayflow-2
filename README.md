@@ -24,8 +24,15 @@ npm run lint
 npm test
 npm run build
 npm run test:e2e
+npm run test:offline
+npm audit
+npm run audit:history
 ```
 
 설정은 [SETUP.md](SETUP.md), 구조는 [ARCHITECTURE.md](ARCHITECTURE.md), 검증 결과는 [TEST_REPORT.md](TEST_REPORT.md), 미완료 사항은 [NEXT_STEPS.md](NEXT_STEPS.md), 세부 제약은 [docs/DECISIONS.md](docs/DECISIONS.md)를 참고하세요.
 
 실제 Gemini 연결, Cloudflare 배포 및 iPhone Push 수신은 아직 검증하지 않았습니다. 무료 플랜과 모델 제공 여부는 운영 전 직접 확인해야 하며 자동 결제/유료 전환/배포는 하지 않았습니다.
+
+후속 검토에서 AI 수정 필드 보존, 시간대 비교, 반복 완료 경합, Cron 데이터 정리, 모바일 초점/입력 및 취약 의존성을 개선했습니다. [UI 캡처](docs/UI_REVIEW.md)와 [공식 Gemini 자료 확인 범위](docs/GEMINI_EVIDENCE.md)를 참고하세요. 현재 후보 모델은 `gemini-3.5-flash-lite`와 Interactions API이며, 무료 등급 자격과 실제 호출은 아직 확인하지 않았습니다.
+
+원격 작업 브랜치: [feat/dayflow-mvp](https://github.com/wjdduddlf112/dayflow-2/tree/feat/dayflow-mvp). 최초 4개 커밋은 업로드했고 후속 검토도 같은 브랜치에 보존합니다. PR API는 환경 네트워크 정책으로 차단되어 PR 생성 완료로 보고하지 않습니다.

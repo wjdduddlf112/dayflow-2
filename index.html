@@ -13,14 +13,7 @@
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="apple-touch-icon" href="/icon-192.png" />
     <title>Dayflow — 나의 하루를 가볍게</title>
-    <script>
-      try {
-        let t = localStorage.getItem("dayflow-theme") || "system";
-        document.documentElement.dataset.theme = t;
-        document.documentElement.style.colorScheme =
-          t === "system" ? "light dark" : t;
-      } catch {}
-    </script>
+    <script src="/theme.js"></script>
   </head>
   <body>
     <div id="root"></div>

@@ -1,46 +1,45 @@
-# 검증 결과
+# 최종 검증 결과
 
-검증일: 2026-10-30 KST. Node 24.19 / Chromium / Cloudflare workerd / 로컬 D1.
+2026-10-30 KST · Node 24.19 · Vitest 5.0.5 · Chromium · workerd / 로컬 D1.
 
-| 검사 | 결과 | 근거 |
+| 검사 | 결과 | 실행/범위 |
 |---|---|---|
 | TypeScript | 통과 | npm run typecheck |
 | ESLint | 통과 | npm run lint |
-| Vitest + RTL | 22개 통과 | domain 12, UI 1, security 4, runtime 5 |
-| 모바일 E2E | 2개 통과 | 390×844 Chromium, 실제 Worker API와 로컬 D1 |
-| 프로덕션 PWA 오프라인 | 1개 통과 | 빌드 앱 셸, 오프라인 재열기, API 캐시 제외, 쓰기/AI 제한 |
-| 프로덕션 빌드 | 통과 | Vite client 및 Worker 번들, 배포 실행 아님 |
-| D1 migrations | 통과 | 0001 및 0002 로컬 적용, 재실행 가능 |
-| 데스크톱 UI | 수동 캡처 확인 | 1440px 화면 레이아웃 확인 |
+| 단위·RTL·통합 | **53개 통과** | domain 16 / Gemini HTTP·Mock 20 / UI 4 / security 4 / workerd·D1 9 |
+| 모바일 브라우저 | **5개 통과** | npm run test:e2e; 실제 로컬 Worker/D1 흐름 및 별도 UI 응답 fixture |
+| 프로덕션 PWA | **2개 통과** | npm run test:offline; 오프라인 재실행, 개인정보 캐시 제외, 정적 자산 CSP |
+| 프로덕션 빌드 | 통과 | React 자산과 Worker, 배포 실행 아님 |
+| 배포 없는 검사 | 통과 | wrangler deploy --dry-run, production 변수·D1·자산 바인딩 확인 |
+| 로컬 마이그레이션 | 통과 | 0001~0004 적용, 재실행 시 미적용 항목 없음 |
+| 의존성 audit | **0건** | npm audit --json, 개발 의존성 포함 |
+| UI 시각 검토 | 캡처 및 직접 확인 | 393px / 320px / Light·Dark·System, docs/UI_REVIEW.md |
 
-## 실행한 동작
+## 동작 검증
 
-- 일정 생성 → 제목 수정 → 완료 → 완료 취소 → 삭제 확인 후 삭제.
-- 자연어 예제에서 복수 3항목, 소요시간 120분, 금요일 마감, 매일 루틴을 추출. 미리보기 이전에는 저장되지 않고 확인 후 3항목 저장.
-- 날짜만 주어지면 scheduledDate로 보존하고 시작시간을 만들지 않음. 상대 날짜는 UTC 경계에서도 서울 기준. 모호한 날짜는 null 경고.
-- 같은 AI draft를 두 번 반영해도 1회만 저장. 잘못된 Origin 변경은 403.
-- 주간 반복 요일 판정 및 루틴별 날짜 완료 이력의 유일성.
-- 규칙 기반 우선순위에서 기한 초과가 중요도보다 우선, 완료 항목 제외.
-- Light / Dark / System 선택 및 DOM 테마 반영.
-- 프로덕션 미인증 개인정보 API 401, 인증 비밀값 없을 때 로그인 503.
-- **실제 workerd**에서 PBKDF2 비밀번호 검증, HttpOnly/Secure/SameSite 쿠키, 로그인된 API, 로그아웃, 시도 제한 429.
-- 프로덕션에 AI_MODE=mock을 넣어도 Gemini 키가 없으면 Mock으로 우회하지 않음.
-- **실제 workerd**에서 임시 키로 Web Push payload 암호화, aes128gcm 인코딩 및 VAPID authorization 생성. 외부 Push 서비스에는 보내지 않음.
-- 스케줄러에 같은 오전 9시를 두 번 전달해 구독별 브리핑 로그가 한 번만 생김. VAPID 누락 실패 상태 기록. D1 UNIQUE 제약도 별도 확인.
-- Manifest standalone / 아이콘 2개, 모바일 가로 넘침 없음.
-- 프로덕션 앱 셸을 읽은 뒤 네트워크를 끊고 재로딩 가능. Cache Storage에 `/api` 응답이 없음을 검사.
+- 실제 로컬 API/D1: 생성 → 수정 → 완료 → 완료 취소 → 확인 후 삭제. Mock 분석 전/후에는 미리보기만 보이고, 확정하면 여러 항목이 DB에 저장된다. draft 재반영은 중복 생성하지 않는다.
+- 실제 workerd: PBKDF2 로그인, HttpOnly/Secure/SameSite 세션 쿠키, 개인정보 API의 미인증 401, 미설정 인증의 503, 로그아웃, 로그인 시도 제한 429, 다른 Origin의 403.
+- 실제 workerd/D1: 동일 버전의 반복 완료를 동시에 요청하면 1건 성공/1건 409. 날짜별 완료 이력 분리, 완료 취소, 삭제 cascade, 오래된 AI snapshot 거절, batch 실패 시 claim 잔류 없음.
+- 실제 workerd: Web Crypto로 aes128gcm 암호화와 VAPID authorization 생성. 외부 Push 서비스로는 발송하지 않았다.
+- 스케줄러: 같은 오전 9시 재호출에 구독당 1회 claim, VAPID 누락 실패 기록, 알림 비활성화 시에도 만료 세션 정리.
+- Gemini 어댑터: 공식 Interactions와 기존 generateContent 요청/응답 계약을 테스트용 HTTP 응답으로 확인. 키는 헤더에만 포함, URL/브라우저에 없음, 후보의 설명 메모 제외, Interactions store=false.
+- Gemini 오류: 429·400·404·500·네트워크 실패·20초 timeout·잘못된 JSON/스키마·불완전 응답을 검사. 원래 공급자 오류 본문이나 키를 사용자 오류에 노출하지 않는다.
+- Mock 한국어: 복수 3항목, 마감일, 120분 소요시간, 오늘/내일/모레/다음 주·명시 날짜, 시작시간 미정, 모호한 오전/오후, 매일·월수금 루틴, 완료/삭제, 토요일→일요일 이동, 여러 후보 선택. 수정하지 않은 제목/설명/중요도/소요시간 보존.
+- 규칙: 실제 epoch에 의한 서로 다른 offset의 날짜 비교, 유효한 달력 날짜, 루틴 시작 경계, 미래 전용 항목의 Today Top 3 제외.
+- UI: 실패한 완료는 복구, 저장 성공 후 조회만 실패하면 완료를 되돌리지 않음. Storage 제한이 서버 저장 결과를 실패로 바꾸지 않음. 완료 중 편집 차단, Tab 순환/ESC/초점 복원, 빠른 입력, 320px 미리보기 가로 넘침 없음.
+- 테마: Light/Dark/System 선택과 OS light↔dark 추종. 미국 LA 시간대로 실행한 브라우저에서도 서울 캘린더 요일 정렬 검증.
+- PWA: Manifest standalone, 아이콘, 앱 셸의 오프라인 재로딩, API의 Cache Storage 제외, 오프라인 쓰기/AI 차단. 정적 자산에 인라인 스크립트를 허용하지 않는 CSP와 no-cache Service Worker 헤더 확인.
 
-## 미검증 / 제한
+## 검증 중 발견해 수정한 문제
 
-- 실제 Gemini 응답·현재 무료 등급 모델·Google 429 수신은 미검증. 오류 처리 분기와 개발 Mock 장애는 검증.
-- 원격 Cloudflare D1, HTTPS 배포, 원격 Cron 실행, 실제 Push 서비스 수락 및 iPhone 수신은 미검증.
-- CI 파일은 작성했지만 GitHub Actions 실행 결과는 이 보고서의 로컬 결과와 구별해야 함.
-- Mock의 모든 한국어 표현을 이해하는 것은 보장하지 않음. 실제 AI 성능 검증이 아님.
-- 시각적 캡처는 실기기의 Safe Area, VoiceOver 및 키보드 검증을 대신하지 않음.
-- 초기 의존성 버전 불일치 및 구형 Push 인코딩을 수정한 뒤 최종 검사를 통과함.
+기존 필드가 누락될 수 있는 AI 전체 대체, 문자열 offset 비교, 반복 완료 경합, 알림 꺼짐 시 정리 누락, 저장 후 조회 실패의 잘못된 롤백, 완료 중 편집의 stale version, 대화상자 초점 복원, 좁은 미리보기 입력 overflow, 장치 시간대에 따른 캘린더 요일 오류를 수정했다. Zod/Vitest/Tinypool의 취약점 보고는 보안 업데이트 후 0건으로 재검사했다.
 
-보안 설정 및 알려진 제약은 SETUP.md, NEXT_STEPS.md, docs/DECISIONS.md 참고.
+초기 브라우저/테스트 하네스 실패는 위 수정 후 재실행해 모두 통과했다. Zod 패키지 주석의 Rollup annotation 제거 경고와 로컬 Request.cf 대체 경고는 남지만 검사 종료는 성공이다.
 
-## 소스 보존
+## 미검증 / 외부 작업
 
-기능별 로컬 커밋을 `feat/dayflow-mvp`에 생성했다. 원격 push는 자동 승인 검토에 의해 실행 전 차단되어 GitHub 업로드/PR/Actions 실행은 확인되지 않았다. 코드의 외부 전송 승인 후 진행할 수 있다. 설치 스크립트와 시작 지침, Gemini 문서/API 도메인은 환경 초안에 저장되었으나 환경 Publish 및 새 작업 복원은 수행하지 않았다.
+- 실제 키 기반 Gemini 분석·429 수신·현재 무료 등급 자격은 미검증. 공식 GitHub 자료의 모델 목록/구조화 출력과 SDK 계약만 확인했다. docs/GEMINI_EVIDENCE.md 참고.
+- 원격 Cloudflare D1/배포/Cron과 실제 Push 서비스 수락 및 iPhone 설치/수신은 미검증. dry-run은 실제 배포 성공이 아니다.
+- UI 로그인 브라우저 테스트는 HTTP 응답 fixture를 사용한다. 서버 인증은 별도 실제 workerd 통합 테스트로 확인했다.
+- GitHub Actions 실행 결과는 로컬 검사와 별개이다. PR API는 환경 정책 403으로 차단되어 PR 생성/검사 상태는 확인하지 못했다.
+- 비밀값 패턴 스캔과 수동 검토는 모든 형태의 민감 데이터 부재를 수학적으로 보장하지 않는다. 스크린샷은 합성 fixture만 사용했다.
