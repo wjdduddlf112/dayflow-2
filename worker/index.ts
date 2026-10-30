@@ -1,13 +1,16 @@
 import { z } from "zod";
 import {
   analysisSchema,
+  daySchema,
+  resolveActionTarget,
+  intervalsOverlap,
   itemInput,
   settingsSchema,
   seoulDay,
   topThree,
 } from "../shared/domain";
 import { authenticated, cookie, digest, verifyPassword } from "./auth";
-import { analyze } from "./ai";
+import { analyze, GeminiError } from "./ai";
 import { list, settings } from "./store";
 import { notify, sendPush } from "./push";
 import type { Env } from "./types";
@@ -27,10 +30,37 @@ const json = (
   });
 const fail = (message: string, status = 400) =>
   json({ error: message }, status);
+class HttpError extends Error {
+  constructor(
+    public status: number,
+    message: string,
+  ) {
+    super(message);
+  }
+}
 async function body(req: Request) {
-  const text = await req.text();
-  if (text.length > 20000) throw new Error("입력이 너무 깁니다.");
-  return JSON.parse(text);
+  const reader = req.body?.getReader();
+  if (!reader) throw new HttpError(400, "요청 내용이 없습니다.");
+  const decoder = new TextDecoder();
+  let text = "";
+  let size = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > 20000) throw new HttpError(413, "입력이 너무 깁니다.");
+      text += decoder.decode(value, { stream: true });
+    }
+    text += decoder.decode();
+  } finally {
+    await reader.cancel();
+  }
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new HttpError(400, "올바른 JSON 요청이 필요합니다.");
+  }
 }
 async function api(req: Request, env: Env): Promise<Response> {
   const url = new URL(req.url);
@@ -83,10 +113,7 @@ async function api(req: Request, env: Env): Promise<Response> {
     return json({ ok: true }, 200, { "Set-Cookie": cookie("", 0) });
   }
   if (path === "/api/state" && method === "GET") {
-    const day = z
-      .string()
-      .regex(/^\d{4}-\d{2}-\d{2}$/)
-      .parse(url.searchParams.get("day") || seoulDay());
+    const day = daySchema.parse(url.searchParams.get("day") || seoulDay());
     return json({
       items: await list(env, day),
       settings: await settings(env),
@@ -155,17 +182,25 @@ async function api(req: Request, env: Env): Promise<Response> {
         const { completed, day } = z
           .object({
             completed: z.boolean(),
-            day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+            day: daySchema,
           })
           .parse(b);
         if (data.type === "routine") {
-          await env.DB.prepare(
-            completed
-              ? "INSERT OR IGNORE INTO RoutineCompletions VALUES(?,?)"
-              : "DELETE FROM RoutineCompletions WHERE item_id=? AND day=?",
-          )
-            .bind(id, day)
-            .run();
+          const guard = crypto.randomUUID();
+          await env.DB.batch([
+            env.DB.prepare(
+              "INSERT INTO MutationGuards(id,valid) SELECT ?,CASE WHEN EXISTS(SELECT 1 FROM ScheduleItems WHERE id=? AND version=?) THEN 1 ELSE 0 END",
+            ).bind(guard, id, version),
+            env.DB.prepare(
+              "UPDATE ScheduleItems SET version=version+1,updated_at=? WHERE id=? AND version=?",
+            ).bind(new Date().toISOString(), id, version),
+            env.DB.prepare(
+              completed
+                ? "INSERT OR IGNORE INTO RoutineCompletions VALUES(?,?)"
+                : "DELETE FROM RoutineCompletions WHERE item_id=? AND day=?",
+            ).bind(id, day),
+            env.DB.prepare("DELETE FROM MutationGuards WHERE id=?").bind(guard),
+          ]);
           return json({ ok: true });
         }
         data.completed = completed;
@@ -194,7 +229,12 @@ async function api(req: Request, env: Env): Promise<Response> {
           i.title.split(" ").some((w) => w.length > 1 && text.includes(w)),
       )
       .slice(0, 40);
-    if (/정리|급한|우선/.test(text) && !/추가|옮겨|삭제|완료/.test(text))
+    if (
+      /(?:급한 것|우선순위|할 것).*?(?:알려|정리)|(?:급한 것부터 알려)/.test(
+        text,
+      ) &&
+      !/추가|옮겨|삭제|완료/.test(text)
+    )
       return json({
         id: null,
         actions: [],
@@ -222,24 +262,30 @@ async function api(req: Request, env: Env): Promise<Response> {
         );
     }
     const analysis = await analyze(env, text, candidates);
-    analysis.actions = analysis.actions.map((a) => ({
-      ...a,
-      requiresConfirmation: true,
-      warning:
-        a.warning ||
-        (a.item.startAt && new Date(a.item.startAt) < new Date()
-          ? "과거 날짜입니다. 확인하세요."
-          : a.item.startAt &&
-              items.some(
-                (i) =>
-                  i.startAt &&
-                  i.endAt &&
-                  i.startAt < (a.item.endAt || a.item.startAt!) &&
-                  i.endAt > a.item.startAt!,
-              )
-            ? "기존 일정과 시간이 겹칠 수 있어요."
-            : null),
-    }));
+    analysis.actions = analysis.actions.map((action) => {
+      const target = candidates.find((i) => i.id === action.targetId);
+      const a =
+        target && action.operation !== "create"
+          ? resolveActionTarget(action, target)
+          : { ...action, targetId: null };
+      const past =
+        (a.item.startAt && Date.parse(a.item.startAt) < Date.now()) ||
+        (a.item.scheduledDate && a.item.scheduledDate < seoulDay()) ||
+        (a.item.dueAt && Date.parse(a.item.dueAt) < Date.now());
+      return {
+        ...a,
+        requiresConfirmation: true,
+        warning:
+          a.warning ||
+          (past
+            ? "과거 날짜가 포함되어 있어요. 확인하세요."
+            : items.some(
+                  (i) => i.id !== a.targetId && intervalsOverlap(a.item, i),
+                )
+              ? "기존 일정과 시간이 겹쳐요."
+              : null),
+      };
+    });
     const id = crypto.randomUUID();
     await env.DB.prepare(
       "INSERT INTO AIActionDrafts(id,data,snapshot,expires_at) VALUES(?,?,?,?)",
@@ -291,7 +337,8 @@ async function api(req: Request, env: Env): Promise<Response> {
         now,
       ),
     );
-    for (const a of b.actions) {
+    for (const submitted of b.actions) {
+      let a = submitted;
       if (a.operation === "create") {
         statements.push(
           env.DB.prepare("INSERT INTO ScheduleItems VALUES(?,?,1,?,?)").bind(
@@ -307,6 +354,7 @@ async function api(req: Request, env: Env): Promise<Response> {
       if (!item || ids.has(item.id))
         return fail("변경할 대상을 하나씩 선택하세요.");
       ids.add(item.id);
+      a = resolveActionTarget(a, item);
       const old = snapshot.find((i) => i.id === item.id);
       if (!old || old.version !== item.version)
         return fail("대상 항목이 변경되었습니다. 다시 분석하세요.", 409);
@@ -325,13 +373,18 @@ async function api(req: Request, env: Env): Promise<Response> {
         statements.push(
           env.DB.prepare("DELETE FROM ScheduleItems WHERE id=?").bind(item.id),
         );
-      else if (a.operation === "complete" && item.type === "routine")
+      else if (a.operation === "complete" && item.type === "routine") {
+        statements.push(
+          env.DB.prepare(
+            "UPDATE ScheduleItems SET version=version+1,updated_at=? WHERE id=?",
+          ).bind(now, item.id),
+        );
         statements.push(
           env.DB.prepare(
             "INSERT OR IGNORE INTO RoutineCompletions VALUES(?,?)",
           ).bind(item.id, seoulDay()),
         );
-      else
+      } else
         statements.push(
           env.DB.prepare(
             "UPDATE ScheduleItems SET data=?,version=version+1,updated_at=? WHERE id=?",
@@ -414,14 +467,23 @@ export default {
       const h = new Headers(res.headers);
       h.set(
         "Content-Security-Policy",
-        "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; worker-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
+        (env.APP_ENV === "development"
+          ? "default-src 'self'; script-src 'self' 'unsafe-inline';"
+          : "default-src 'self'; script-src 'self';") +
+          " style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; worker-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
       );
       h.set("Referrer-Policy", "no-referrer");
+      h.set("X-Content-Type-Options", "nosniff");
       return new Response(res.body, { status: res.status, headers: h });
     }
     try {
       return await api(req, env);
     } catch (e) {
+      if (e instanceof GeminiError)
+        return json({ error: e.message, code: e.code }, e.status);
+      if (e instanceof HttpError) return fail(e.message, e.status);
+      if (e instanceof Error && /CHECK constraint/.test(e.message))
+        return fail("항목이 변경되었습니다. 다시 불러오세요.", 409);
       if (e instanceof z.ZodError)
         return fail(e.issues[0]?.message || "입력을 확인하세요.");
       if (e instanceof Error && /UNIQUE constraint/.test(e.message))
@@ -434,7 +496,7 @@ export default {
       );
     }
   },
-  async scheduled(_event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
-    ctx.waitUntil(notify(env));
+  async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
+    ctx.waitUntil(notify(env, new Date(event.scheduledTime)));
   },
 };

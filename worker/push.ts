@@ -21,11 +21,37 @@ export async function sendPush(
   return fetch((subscription as { endpoint: string }).endpoint, {
     ...payload,
     body: new Uint8Array(payload.body).buffer,
+    signal: AbortSignal.timeout(10000),
   });
 }
-export async function notify(env: Env, now = new Date()) {
-  if (!(await settings(env)).notificationsEnabled) return;
+export async function cleanup(env: Env, now: Date) {
+  await env.DB.batch([
+    env.DB.prepare("DELETE FROM Sessions WHERE expires_at<?").bind(
+      now.getTime(),
+    ),
+    env.DB.prepare("DELETE FROM AIActionDrafts WHERE expires_at<?").bind(
+      now.getTime() - 86400000,
+    ),
+    env.DB.prepare("DELETE FROM LoginAttempts WHERE reset_at<?").bind(
+      now.getTime(),
+    ),
+    env.DB.prepare("DELETE FROM NotificationLogs WHERE created_at<?").bind(
+      new Date(now.getTime() - 30 * 86400000).toISOString(),
+    ),
+    env.DB.prepare("DELETE FROM RequestKeys WHERE created_at<?").bind(
+      new Date(now.getTime() - 7 * 86400000).toISOString(),
+    ),
+    env.DB.prepare("DELETE FROM AILimits WHERE day<?").bind(
+      seoulDay(new Date(now.getTime() - 90 * 86400000)),
+    ),
+  ]);
+}
+export async function notify(env: Env, scheduled = new Date()) {
+  const now = new Date(Math.floor(scheduled.getTime() / 60000) * 60000);
+  // Housekeeping must still run for accounts that never enable notifications.
+  if (now.getUTCMinutes() === 0) await cleanup(env, now);
   const s = await settings(env);
+  if (!s.notificationsEnabled) return;
   const day = seoulDay(now);
   const time = new Intl.DateTimeFormat("en-GB", {
     timeZone: "Asia/Seoul",
@@ -38,7 +64,7 @@ export async function notify(env: Env, now = new Date()) {
   if (time === "09:00")
     messages.push({
       key: `brief:${day}`,
-      body: `오늘 일정 ${items.filter((i) => occursOn(i, day)).length}개 · 중요한 할 일 ${items.filter((i) => !i.completed && i.priority === "high").length}개. 앱에서 우선순위를 확인하세요.`,
+      body: `오늘 일정 ${items.filter((i) => occursOn(i, day)).length}개 · 중요한 할 일 ${items.filter((i) => !i.completed && i.priority === "high").length}개 · 오늘 마감 ${items.filter((i) => !i.completed && i.dueAt && seoulDay(new Date(i.dueAt)) === day).length}개. 앱에서 우선순위를 확인하세요.`,
     });
   for (const i of items) {
     if (i.completed) continue;
@@ -94,16 +120,4 @@ export async function notify(env: Env, now = new Date()) {
           .run();
       }
     }
-  await env.DB.batch([
-    env.DB.prepare("DELETE FROM Sessions WHERE expires_at<?").bind(Date.now()),
-    env.DB.prepare("DELETE FROM AIActionDrafts WHERE expires_at<?").bind(
-      Date.now() - 86400000,
-    ),
-    env.DB.prepare("DELETE FROM LoginAttempts WHERE reset_at<?").bind(
-      Date.now(),
-    ),
-    env.DB.prepare("DELETE FROM NotificationLogs WHERE created_at<?").bind(
-      new Date(now.getTime() - 30 * 86400000).toISOString(),
-    ),
-  ]);
 }

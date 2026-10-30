@@ -1,12 +1,14 @@
 import { webcrypto, randomBytes, pbkdf2Sync } from "node:crypto";
-import { writeFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { writeFileSync, realpathSync } from "node:fs";
+import { resolve, dirname } from "node:path";
 const destination = process.argv[2];
 if (!destination)
   throw new Error(
     "Usage: DAYFLOW_PASSWORD=... npm run keys -- /secure/path/dayflow-secrets.txt (outside checkout)",
   );
-if (resolve(destination).startsWith(resolve(".") + "/"))
+const repository = realpathSync(resolve("."));
+const parent = realpathSync(dirname(resolve(destination)));
+if (parent === repository || parent.startsWith(repository + "/"))
   throw new Error("Choose a destination outside the repository.");
 const password = process.env.DAYFLOW_PASSWORD;
 if (!password || password.length < 12)

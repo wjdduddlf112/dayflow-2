@@ -98,3 +98,53 @@ describe("items and priority", () => {
     expect(r[0].reason).toContain("마감");
   });
 });
+it("compares instants with different timezone offsets", () => {
+  expect(
+    itemInput.safeParse({
+      type: "event",
+      title: "면접",
+      startAt: "2026-10-30T23:00:00+09:00",
+      endAt: "2026-10-30T15:00:00Z",
+    }).success,
+  ).toBe(true);
+  expect(
+    itemInput.safeParse({
+      type: "event",
+      title: "면접",
+      startAt: "2026-10-30T15:00:00Z",
+      endAt: "2026-10-30T23:00:00+09:00",
+    }).success,
+  ).toBe(false);
+});
+it("rejects invalid calendar days and weekly routines with no weekdays", () => {
+  expect(
+    itemInput.safeParse({
+      type: "task",
+      title: "계획",
+      scheduledDate: "2026-02-30",
+    }).success,
+  ).toBe(false);
+  expect(
+    itemInput.safeParse({
+      type: "routine",
+      title: "운동",
+      recurrence: { frequency: "weekly", weekdays: [], time: null },
+    }).success,
+  ).toBe(false);
+});
+it("keeps tomorrow-only plans out of Today Top 3", () => {
+  expect(topThree([item({ scheduledDate: "2026-10-31" })], now)).toHaveLength(
+    0,
+  );
+});
+it("respects a routines date-only start boundary", () =>
+  expect(
+    occursOn(
+      item({
+        type: "routine",
+        scheduledDate: "2026-11-01",
+        recurrence: { frequency: "daily", weekdays: [], time: null },
+      }),
+      "2026-10-30",
+    ),
+  ).toBe(false));

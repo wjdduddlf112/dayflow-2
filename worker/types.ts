@@ -4,6 +4,7 @@ export interface Env {
   APP_ENV: string;
   AI_MODE: string;
   GEMINI_MODEL: string;
+  GEMINI_API_STYLE?: string;
   GEMINI_API_KEY?: string;
   AUTH_PASSWORD_HASH?: string;
   SESSION_SECRET?: string;

@@ -21,7 +21,8 @@
   "vars": {
     "APP_ENV": "production",
     "AI_MODE": "gemini",
-    "GEMINI_MODEL": "gemini-2.5-flash-lite",
+    "GEMINI_MODEL": "gemini-3.5-flash-lite",
+    "GEMINI_API_STYLE": "interactions",
   },
   "triggers": { "crons": ["* * * * *"] },
 }
