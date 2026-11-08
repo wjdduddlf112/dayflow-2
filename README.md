@@ -36,3 +36,5 @@ npm run audit:history
 후속 검토에서 AI 수정 필드 보존, 시간대 비교, 반복 완료 경합, Cron 데이터 정리, 모바일 초점/입력 및 취약 의존성을 개선했습니다. [UI 캡처](docs/UI_REVIEW.md)와 [공식 Gemini 자료 확인 범위](docs/GEMINI_EVIDENCE.md)를 참고하세요. 현재 후보 모델은 `gemini-3.5-flash-lite`와 Interactions API이며, 무료 등급 자격과 실제 호출은 아직 확인하지 않았습니다.
 
 원격 작업 브랜치: [feat/dayflow-mvp](https://github.com/wjdduddlf112/dayflow-2/tree/feat/dayflow-mvp). 최초 4개 커밋은 업로드했고 후속 검토도 같은 브랜치에 보존합니다. PR API는 환경 네트워크 정책으로 차단되어 PR 생성 완료로 보고하지 않습니다.
+
+D1 연결 준비(2026-11-09): 기존 `dayflow`의 실제 UUID `a0433029-2987-4bb1-ae73-eb6303ec1e02`를 `wrangler.jsonc`에 반영했습니다. 바인딩 `DB`와 `migrations` 경로를 유지합니다. 원격 마이그레이션과 프로덕션 배포는 실행하지 않았으며, 정확한 후속 명령은 [SETUP.md](SETUP.md)를 따르세요. 새 DB는 생성하지 않습니다.

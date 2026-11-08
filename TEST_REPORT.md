@@ -1,4 +1,33 @@
-# 최종 검증 결과
+# D1 연결 설정 검증 (2026-11-09 KST)
+
+기존 feat/dayflow-mvp의 원격 최신 커밋 2ed1677을 가져와 작업했다. 애플리케이션 재구현이나 마이그레이션 SQL 변경 없이 wrangler.jsonc의 임시 database_id를 a0433029-2987-4bb1-ae73-eb6303ec1e02로 교체했다. DB / dayflow / migrations / Worker dayflow-2 설정은 유지했다.
+
+| 이번 실행한 검사 | 결과 |
+|---|---|
+| npm ci | 기존 lockfile로 설치 통과; lockfile 변경 없음 |
+| TypeScript / ESLint | 각각 통과 |
+| npm test | 5개 파일, 53개 테스트 통과 |
+| npm run build | Worker + React 프로덕션 빌드 통과 |
+| wrangler deploy --dry-run | 통과; 원격 배포/DB 쓰기 없음 |
+| 생성된 배포 설정 검사 | 실제 UUID / DB 바인딩 / dayflow DB 이름 일치 |
+| 격리된 빈 로컬 D1 | 0001~0004 최초 적용 성공 |
+| 마이그레이션 재실행 | No migrations to apply; 기존 합성 fixture 1건 보존 |
+| 스키마/이력 조회 | 앱 테이블 11개, 명시적 인덱스 6개, 마이그레이션 이력 4개 확인 |
+| 로컬 SQLite 읽기 전용 검사 | foreign_key_check 위반 없음, integrity_check=ok |
+
+호환성: @cloudflare/vite-plugin 1.66.0 / Wrangler 4.155.0 / Vite 7.3.7 / Node 24.19.0. 빌드가 생성한 dist/dayflow_2/wrangler.json에도 실제 UUID가 포함되며 Dry Run은 그 설정으로 DB와 Static Assets, production 변수를 인식했다.
+
+마이그레이션은 기존 SQL 그대로 검토했다. ScheduleItems의 JSON 유효성, RoutineCompletions의 FK/cascade와 날짜별 복합 PK, 세션 만료/발송/요청/draft/일정 정렬 인덱스, 설정 단일행·MutationGuards CHECK 제약을 유지했다. SQL의 CREATE 문 자체는 재실행용이 아니며 Wrangler의 d1_migrations 이력이 중복 적용을 막는다. 기존 Sites DB나 URL에 대한 명령/접근은 수행하지 않았다.
+
+추가 검사에서 D1 SQL API에 한꺼번에 보낸 PRAGMA 검사가 SQLITE_AUTH로 거절됐다. 지원되는 SELECT로 스키마/이력/보존을 다시 검증하고, Miniflare 내부 metadata DB를 제외한 합성 로컬 DB 파일에 읽기 전용 SQLite 무결성 검사를 수행해 통과했다. 이는 원격 D1 무결성 검증 결과가 아니다. 기존 Zod/Rollup annotation 경고는 빌드 실패를 일으키지 않았다.
+
+Cloudflare 인증 변수/로컬 인증 설정이 없고 wrangler whoami도 미인증을 반환했다. 원격 D1 확인·원격 마이그레이션·Secret 등록·실제 배포는 실행하지 않았다. UUID 설정만으로 원격 접근/스키마 반영이 검증된 것은 아니다.
+
+GitHub 기존 PR 조회는 api.github.com/graphql 정책 403으로 실패했다. 기존 PR 유무를 확인할 수 없어 중복 생성 요청은 보내지 않았다. 실제 Gemini/Push/iPhone 검증과 브라우저 테스트는 이번 D1 설정 변경 범위에서 재실행하지 않았으며, 아래 브라우저 결과는 명시된 이전 날짜의 기록이다.
+
+---
+
+# 이전 전체 검증 결과 (2026-10-30)
 
 2026-10-30 KST · Node 24.19 · Vitest 5.0.5 · Chromium · workerd / 로컬 D1.
 

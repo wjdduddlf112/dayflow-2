@@ -4,11 +4,13 @@
 
 최초 MVP 4개 커밋을 소유자 승인 후 `wjdduddlf112/dayflow-2`의 `feat/dayflow-mvp`에 push했고 원격 SHA 일치를 확인했다. 후속 수정도 이 브랜치로 보존한다. main에는 병합하지 않는다.
 
-GitHub PR 생성은 `https://api.github.com/graphql`에서 환경 정책 403으로 차단됐다. **생성된 PR 링크는 없다.** 환경 설정에서 초안의 api.github.com 허용을 적용한 뒤 기존 인증으로 재시도해야 한다. 실패만으로 새 토큰이 필요하다고 단정하지 않는다.
+이전 PR 생성과 2026-11-09 기존 PR 조회는 `https://api.github.com/graphql`의 환경 정책 403으로 차단됐다. **현재 기존 PR 유무를 확인하지 못했다.** 중복 생성을 피하려고 이번에는 생성 요청을 보내지 않았다. 환경 설정에서 api.github.com 허용을 적용한 뒤 기존 인증으로 먼저 조회해야 한다. 실패만으로 새 토큰이 필요하다고 단정하지 않는다.
 
 준비된 PR 설명은 docs/PR_DESCRIPTION.md에 있다. 연결이 가능해지면 다음 명령을 실행한다.
 
 ```bash
+gh pr list --repo wjdduddlf112/dayflow-2 --base main --head feat/dayflow-mvp --state all
+# 기존 PR이 없다고 확인한 경우에만:
 gh pr create --repo wjdduddlf112/dayflow-2 --base main --head feat/dayflow-mvp \
   --title 'feat: Dayflow 2.0 개인 AI 일정 비서 MVP' --body-file docs/PR_DESCRIPTION.md
 ```
@@ -23,13 +25,13 @@ gh pr create --repo wjdduddlf112/dayflow-2 --base main --head feat/dayflow-mvp \
 
 ## 3. 배포 승인 전 준비
 
-새 D1 생성 및 실제 UUID, AUTH_PASSWORD_HASH, SESSION_SECRET, VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY / VAPID_SUBJECT를 준비한다. SETUP.md의 프로덕션 표를 따른다. development 인증 생략 설정을 원격으로 복사하지 않는다. 현재 dry-run만 통과했으며 배포하지 않았다.
+기존 D1 dayflow의 UUID a0433029-2987-4bb1-ae73-eb6303ec1e02는 wrangler.jsonc에 반영했다. 새 D1은 생성하지 않는다. AUTH_PASSWORD_HASH, SESSION_SECRET, VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY / VAPID_SUBJECT를 준비한다. SETUP.md의 프로덕션 표를 따른다. development 인증 생략 설정을 원격으로 복사하지 않는다. 현재 dry-run만 통과했으며 배포하지 않았다.
 
 무료 Workers·D1·Cron의 현재 할당량/CPU 제한을 공식 문서에서 확인한다(developers.cloudflare.com 허용 필요). 항목 수에 비례한 매분 조회·발송 비용을 먼저 측정한다. 유료 플랜 변경 없이 한도에 맞춰 주기/쿼리를 조정한다.
 
 ## 4. 승인 후 배포 및 iPhone 실기기
 
-새 Dayflow 2 DB에 마이그레이션 → HTTPS 배포 → 로그인/로그아웃/권한 검사 → iOS 16.4+ 홈 화면 설치 → 알림 허용과 테스트 알림 → 다음날 09시 KST 브리핑 / 30분 전 일정 / 루틴 시간 / 만료 구독·알림 해제 검사 순서다. 기존 Sites 및 DB에는 연결하지 않는다.
+UUID와 계정 확인 → 기존 Dayflow 2 D1의 미적용 마이그레이션 → 승인 후 HTTPS 배포 → 로그인/로그아웃/권한 검사 → iOS 16.4+ 홈 화면 설치 → 알림 허용과 테스트 알림 → 다음날 09시 KST 브리핑 / 30분 전 일정 / 루틴 시간 / 만료 구독·알림 해제 검사 순서다. 기존 Sites 및 DB에는 연결하지 않는다.
 
 ## 알려진 제한
 
@@ -42,3 +44,5 @@ gh pr create --repo wjdduddlf112/dayflow-2 --base main --head feat/dayflow-mvp \
 - 실시간 다중 기기 동기화 대신 화면 전환과 작업 후 갱신한다.
 - 로그인 세션은 7일, Idempotency-Key 보존도 7일. 비밀번호 교체 시 기존 세션을 모두 만료하려면 SESSION_SECRET도 교체한다.
 - Safari 키보드·Safe Area·VoiceOver·splash·백그라운드 Push는 iPhone에서 별도로 확인해야 한다.
+
+2026-11-09 D1 연결 준비: [SETUP.md](SETUP.md#기존-d1-연결-후-사용자-실행-절차-2026-11-09)에 기존 DB 확인·Secret 등록·원격 마이그레이션·배포 승인 후 명령을 정리했다. 현재 실행 환경에 Cloudflare 인증이 없어 원격 DB/배포는 검증하지 않았다.

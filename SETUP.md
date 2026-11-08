@@ -28,8 +28,8 @@ Google 무료 API 정책에 따라 전송 내용이 활용될 수 있습니다. 
 이 작업은 Cloudflare 계정/DB/배포를 생성하지 않았습니다. 다음은 사용자가 실행할 절차입니다.
 
 1. 무료 Workers 계정으로 인증합니다. 유료 플랜은 선택하지 않습니다.
-2. `npx wrangler d1 create dayflow` 후 반환된 database_id를 wrangler.jsonc에 설정합니다. 현재 UUID는 로컬 개발용 자리표시자입니다.
-3. `npx wrangler d1 migrations apply dayflow --remote` (새 Dayflow 2 DB에만 적용).
+2. 기존 D1 `dayflow`를 사용합니다. `wrangler.jsonc`에는 `database_id=a0433029-2987-4bb1-ae73-eb6303ec1e02`, 바인딩 `DB`, 마이그레이션 경로 `migrations`를 반영했습니다. **새 D1은 생성하지 않습니다.** `npx wrangler d1 info dayflow --config wrangler.jsonc`로 계정/UUID가 일치하는지 먼저 확인하세요.
+3. 인증과 대상 확인 후 `npx wrangler d1 migrations list dayflow --remote --config wrangler.jsonc` → `npx wrangler d1 migrations apply dayflow --remote --config wrangler.jsonc`로 기존 Dayflow 2 전용 DB에 미적용 파일만 반영합니다. 이 작업에서는 원격 명령을 실행하지 않았습니다.
 4. 아래 인증/Push 비밀값을 `npx wrangler secret put NAME`으로 각각 등록합니다. 키를 저장소나 대화에 붙여넣지 않습니다.
 5. wrangler.jsonc는 APP_ENV=production, AI_MODE=gemini를 기본으로 유지합니다. .dev.vars의 개발 모드를 원격 환경변수에 복사하지 않습니다.
 6. `npm run build` 후 명시적 배포 승인 하에 `npx wrangler deploy`를 실행합니다. Cloudflare Vite Plugin이 생성한 `.wrangler/deploy/config.json`을 통해 dist Worker와 Static Assets를 동일 오리진에 배포합니다.
@@ -67,7 +67,7 @@ Google 무료 API 정책에 따라 전송 내용이 활용될 수 있습니다. 
 
 | 이름 | 종류 | 준비 방법 |
 |---|---|---|
-| DB / database_id | Cloudflare D1 바인딩 | 별도 새 Dayflow 2 DB 생성 후 실제 UUID 입력 |
+| DB / database_id | Cloudflare D1 바인딩 | 기존 dayflow / a0433029-2987-4bb1-ae73-eb6303ec1e02 설정됨 |
 | APP_ENV | 비밀 아님 | production 유지 |
 | AI_MODE | 비밀 아님 | gemini 유지; 원격에서 mock 사용 금지 |
 | GEMINI_MODEL | 비밀 아님 | 후보 gemini-3.5-flash-lite; 현재 무료 제공 확인 후 결정 |
@@ -82,3 +82,78 @@ Google 무료 API 정책에 따라 전송 내용이 활용될 수 있습니다. 
 `npx wrangler deploy --dry-run --outdir /tmp/dayflow-worker-dry-run`으로 업로드 없이 번들/바인딩을 확인했습니다. 출력에서 APP_ENV=production과 동일 오리진 자산/D1 바인딩을 확인했습니다. 실제 배포는 실행하지 않았습니다.
 
 Cron의 매분 조회는 항목 수에 비례합니다. 예를 들어 2,000항목을 매분 읽으면 항목 행만 대략 하루 288만 번 읽습니다(다른 설정/구독/완료 조회 제외). 개인의 일반적 데이터 규모를 전제로 하며, 이 수치를 현재 무료 할당량으로 보증하지 않습니다. 무료 한도에 근접하면 예약 후보만 조회하는 SQL과 Cron 주기 조정을 먼저 적용해야 합니다. 일별 일괄조회 규모가 커지면 요청/CPU/D1 한도를 실측하세요.
+
+## 기존 D1 연결 후 사용자 실행 절차 (2026-11-09)
+
+Worker `dayflow-2` → 바인딩 `DB` → 기존 D1 `dayflow` (`a0433029-2987-4bb1-ae73-eb6303ec1e02`)만 사용합니다. UUID는 리소스 식별자이며 인증 키가 아닙니다. 이 설정은 Cloudflare 접근 인증/원격 스키마 반영/배포 성공을 의미하지 않습니다. 기존 ChatGPT Sites의 URL·DB와 연결하거나 데이터를 이전하지 않습니다.
+
+### 1. 정확한 브랜치와 계정 확인
+
+아래는 **사용자가 인증된 자신의 터미널에서 실행할 명령**입니다. 이 작업에서는 원격 마이그레이션·비밀값 등록·배포를 실행하지 않았습니다.
+
+```bash
+git switch feat/dayflow-mvp
+git pull --ff-only origin feat/dayflow-mvp
+npm ci
+npx wrangler login
+npx wrangler whoami
+npx wrangler d1 info dayflow --config wrangler.jsonc
+```
+
+이미 인증된 환경은 login을 생략합니다. 출력 UUID가 위 값과 일치하고 본인의 의도한 계정인지 확인하세요. 다른 UUID/계정이거나 DB에 예상하지 않은 데이터가 있으면 적용을 중단합니다. 새 DB나 기존 Sites DB를 임의로 대체하지 않습니다. CI용 토큰은 필요한 계정의 D1/Worker 편집 권한에 한정하고 소스·대화에 기록하지 않습니다.
+
+### 2. Gemini·로그인·VAPID 비밀값 준비
+
+현재 무료 제공과 계정 조건을 확인한 Gemini 프로젝트의 키를 준비합니다. 후보 모델/형식은 GEMINI_MODEL / GEMINI_API_STYLE로 관리하며 API 키에는 VITE_ 접두사를 사용하지 않습니다.
+
+로컬 Bash에서 비밀번호를 화면/명령 이력에 남기지 않고 생성 도구에 전달합니다.
+
+```bash
+umask 077
+private_dir="$(mktemp -d "${TMPDIR:-/tmp}/dayflow-secrets.XXXXXX")"
+read -r -s -p 'Dayflow 비밀번호 (12자 이상): ' DAYFLOW_PASSWORD
+export DAYFLOW_PASSWORD
+npm run keys -- "$private_dir/dayflow-secrets.txt"
+unset DAYFLOW_PASSWORD
+```
+
+저장소 밖의 0600 파일에 해시·세션 비밀값·VAPID 키가 만들어집니다. 파일을 Git/채팅/스크린샷에 넣지 말고 보안 편집기로 확인해 다음 CLI 프롬프트에 필요한 값만 직접 입력합니다. GEMINI_API_KEY는 AI Studio에서 준비한 키, VAPID_SUBJECT는 운영자의 mailto: 주소입니다.
+
+```bash
+npx wrangler secret put GEMINI_API_KEY --name dayflow-2 --config wrangler.jsonc
+npx wrangler secret put AUTH_PASSWORD_HASH --name dayflow-2 --config wrangler.jsonc
+npx wrangler secret put SESSION_SECRET --name dayflow-2 --config wrangler.jsonc
+npx wrangler secret put VAPID_PUBLIC_KEY --name dayflow-2 --config wrangler.jsonc
+npx wrangler secret put VAPID_PRIVATE_KEY --name dayflow-2 --config wrangler.jsonc
+npx wrangler secret put VAPID_SUBJECT --name dayflow-2 --config wrangler.jsonc
+```
+
+이 단계는 원격 Worker의 비밀값을 변경하므로 사용자 실행 단계입니다. Worker가 없다는 생성 프롬프트가 나오거나 대상이 다르면 중단하고 대상을 확인하세요. 비밀값 파일은 비밀번호 관리자 등으로 안전하게 보관하거나 작업 후 안전하게 제거합니다.
+
+### 3. 기존 D1 원격 마이그레이션
+
+```bash
+npx wrangler d1 migrations list dayflow --remote --config wrangler.jsonc
+npx wrangler d1 migrations apply dayflow --remote --config wrangler.jsonc
+npx wrangler d1 migrations list dayflow --remote --config wrangler.jsonc
+```
+
+0001~0004는 신규 **빈 스키마**에 순서대로 적용하며 Wrangler의 d1_migrations 이력이 재실행을 제어합니다. raw SQL의 CREATE TABLE/INDEX 자체는 재실행용이 아니므로 SQL 파일을 직접 반복 실행하지 마세요. 이미 적용한 마이그레이션 파일은 수정하지 않고 후속 변경은 새 번호 파일로 추가합니다.
+
+### 4. 배포 승인 후에만
+
+```bash
+npm run typecheck
+npm run lint
+npm test
+npm run build
+npx wrangler deploy --dry-run --outdir /tmp/dayflow-worker-dry-run
+# 실제 배포 승인을 받은 뒤에만:
+npx wrangler deploy
+```
+
+Cloudflare Vite Plugin은 빌드한 Worker/Static Assets와 배포용 Wrangler 설정을 생성합니다. Dry Run에서 DB 바인딩과 production 변수를 확인합니다. 로컬 .dev.vars는 원격으로 복사하지 않습니다. Cron은 UTC 매분 실행되며 오전 9시 서울 브리핑은 00:00 UTC에 해당합니다.
+
+### 5. HTTPS·iPhone 검증
+
+배포 후 비로그인 개인정보 API 401, 로그인/로그아웃, 일정 CRUD, Gemini 확인 저장을 검사합니다. iOS 16.4+ Safari에서 홈 화면에 추가한 뒤 앱의 알림 허용 버튼을 눌러 테스트 Push, 다음날 오전 9시 브리핑, 일정 30분 전, 루틴 시간·해제·중복 방지를 확인합니다. 실제 수신 전에는 Push 검증 완료로 표시하지 않습니다.

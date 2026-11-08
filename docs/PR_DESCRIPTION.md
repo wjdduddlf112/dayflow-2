@@ -5,3 +5,5 @@
 검증: TypeScript / ESLint / 프로덕션 빌드 / 단위·통합 53개 / 모바일 브라우저 5개 / PWA 오프라인·보안 헤더 2개 통과. workerd에서 인증·D1 경합·aes128gcm/VAPID 암호화를 확인했고 npm audit는 개발 의존성 포함 0건입니다. Wrangler dry-run으로 production 변수와 바인딩을 확인했습니다.
 
 실제 Gemini 호출, 현재 무료 플랜 자격, 원격 배포/Cron 및 iPhone 설치·푸시 수신은 미검증입니다. 배포·결제·PR 병합은 하지 않았으며 기존 Sites/DB와 독립된 앱입니다. SETUP.md, TEST_REPORT.md, NEXT_STEPS.md, docs/SECURITY_REVIEW.md와 docs/UI_REVIEW.md를 참고하세요.
+
+D1 연결 준비(2026-11-09): 기존 dayflow DB의 실제 UUID a0433029-2987-4bb1-ae73-eb6303ec1e02를 DB 바인딩에 반영했습니다. 빈 로컬 D1에 0001~0004 적용/재실행/데이터 보존, 53개 테스트, 빌드 및 배포 Dry Run을 재검증했습니다. Cloudflare 인증이 없어 원격 마이그레이션·Secret 등록·배포는 실행하지 않았습니다. 새 D1을 생성하지 않습니다.

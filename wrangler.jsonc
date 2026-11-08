@@ -14,7 +14,7 @@
     {
       "binding": "DB",
       "database_name": "dayflow",
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      "database_id": "a0433029-2987-4bb1-ae73-eb6303ec1e02",
       "migrations_dir": "migrations",
     },
   ],
