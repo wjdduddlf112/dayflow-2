@@ -267,3 +267,28 @@ it("reports invalid keys without echoing them", async () => {
   expect(error.message).toContain("서버 API 키 오류");
   expect(error.message).not.toContain(env.GEMINI_API_KEY);
 });
+
+it("retries a temporary 503 once and returns the real structured response", async () => {
+  const result = mockAnalyze("내일 공부", [], now);
+  const fetcher = vi.fn()
+    .mockResolvedValueOnce(new Response("temporary", { status: 503 }))
+    .mockResolvedValueOnce(Response.json({ candidates: [{ finishReason: "STOP", content: { parts: [{ text: JSON.stringify(result) }] } }] }));
+  vi.stubGlobal("fetch", fetcher);
+  expect((await analyze(env, "내일 공부", [])).actions).toHaveLength(1);
+  expect(fetcher).toHaveBeenCalledTimes(2);
+});
+it("stops after one 503 retry and offers direct input", async () => {
+  const fetcher = vi.fn(async () => new Response("temporary", { status: 503 }));
+  vi.stubGlobal("fetch", fetcher);
+  const error = await analyze(env, "문장", []).catch((e) => e);
+  expect(error).toMatchObject({ code: "AI_PROVIDER", status: 503 });
+  expect(error.message).toContain("재시도 1회 실패");
+  expect(error.message).toContain("직접 입력");
+  expect(fetcher).toHaveBeenCalledTimes(2);
+});
+it("does not retry quota errors", async () => {
+  const fetcher = vi.fn(async () => new Response("quota", { status: 429 }));
+  vi.stubGlobal("fetch", fetcher);
+  await expect(analyze(env, "문장", [])).rejects.toMatchObject({code: "AI_QUOTA"});
+  expect(fetcher).toHaveBeenCalledTimes(1);
+});
