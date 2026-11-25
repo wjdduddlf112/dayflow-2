@@ -248,3 +248,22 @@ it("rejects incomplete Interactions and invalid response envelopes", async () =>
     code: "AI_INVALID_RESPONSE",
   });
 });
+
+it("reports a safe region restriction without exposing the provider message", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => Response.json({
+    error: { status: "FAILED_PRECONDITION", message: "User location is not supported for the API use. private-detail" },
+  }, { status: 400 })));
+  const error = await analyze(env, "문장", []).catch((e) => e);
+  expect(error).toMatchObject({code: "AI_PROVIDER", status: 502});
+  expect(error.message).toContain("Google HTTP 400");
+  expect(error.message).toContain("서버 접속 지역 제한");
+  expect(error.message).not.toContain("private-detail");
+});
+it("reports invalid keys without echoing them", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => Response.json({
+    error: { status: "INVALID_ARGUMENT", details: [{reason: "API_KEY_INVALID"}], message: env.GEMINI_API_KEY },
+  }, { status: 400 })));
+  const error = await analyze(env, "문장", []).catch((e) => e);
+  expect(error.message).toContain("서버 API 키 오류");
+  expect(error.message).not.toContain(env.GEMINI_API_KEY);
+});

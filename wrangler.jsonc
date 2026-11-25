@@ -22,7 +22,7 @@
     "APP_ENV": "production",
     "AI_MODE": "gemini",
     "GEMINI_MODEL": "gemini-3.5-flash-lite",
-    "GEMINI_API_STYLE": "interactions",
+    "GEMINI_API_STYLE": "generate-content",
   },
   "triggers": { "crons": ["* * * * *"] },
 }

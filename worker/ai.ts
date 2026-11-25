@@ -152,12 +152,40 @@ export async function analyze(
         "AI_QUOTA",
         "Gemini 무료 호출 한도에 도달했습니다. 잠시 후 다시 시도하세요.",
       );
-    if (!res.ok)
+    if (!res.ok) {
+      // Show only fixed diagnostic labels, never Google's raw error or user data.
+      const provider = (await res.json().catch(() => null)) as {
+        error?: { status?: string; message?: string; details?: { reason?: string }[] };
+      } | null;
+      const status = provider?.error?.status;
+      const message = provider?.error?.message;
+      const reasons = Array.isArray(provider?.error?.details)
+        ? provider.error.details.map((detail) => detail?.reason)
+        : [];
+      const labels: Record<string, string> = {
+        INVALID_ARGUMENT: "요청 형식 오류",
+        FAILED_PRECONDITION: "서비스 이용 조건 오류",
+        PERMISSION_DENIED: "접근 권한 오류",
+        UNAUTHENTICATED: "인증 오류",
+        NOT_FOUND: "모델 또는 API 경로 오류",
+        UNAVAILABLE: "공급자 일시 장애",
+        INTERNAL: "공급자 내부 오류",
+      };
+      let reason = typeof status === "string" && Object.hasOwn(labels, status)
+        ? labels[status]
+        : "공급자 오류";
+      if (reasons.includes("API_KEY_INVALID") || (typeof message === "string" && /api key not valid|invalid api key/i.test(message)))
+        reason = "서버 API 키 오류";
+      else if (typeof message === "string" && /location is not supported|country.*not supported|unsupported.*region/i.test(message))
+        reason = "서버 접속 지역 제한";
+      else if (typeof message === "string" && /free tier.*not available|free tier.*unavailable/i.test(message))
+        reason = "무료 등급 사용 제한";
       throw new GeminiError(
         res.status === 400 || res.status === 404 ? 502 : 503,
         "AI_PROVIDER",
-        "Gemini 요청을 처리하지 못했습니다. API 키와 모델 설정을 확인하세요.",
+        `Gemini 요청 실패 (Google HTTP ${res.status} · ${reason}).`,
       );
+    }
     try {
       const data = (await res.json()) as {
         status?: string;
